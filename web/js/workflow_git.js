@@ -6,6 +6,7 @@ const SIDEBAR_ID = "workflow-git-restore";
 
 let activeContainer = null;
 let selectedHash = null;
+let refreshTimer = null;
 
 function escapeHtml(value) {
     return String(value ?? "")
@@ -18,9 +19,13 @@ function escapeHtml(value) {
 
 function formatTime(iso) {
     try {
-        return new Intl.DateTimeFormat("ko-KR", {
-            year: "numeric", month: "2-digit", day: "2-digit",
-            hour: "2-digit", minute: "2-digit", second: "2-digit",
+        return new Intl.DateTimeFormat("en-US", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
             hour12: false,
         }).format(new Date(iso));
     } catch {
@@ -48,13 +53,14 @@ async function requestJson(route, options = {}) {
 
 async function confirmRestore(commit) {
     const text =
-        `${formatTime(commit.timestamp)}\n${commit.short_hash} · ${commit.subject}\n\n` +
-        "workflows 폴더 전체를 이 시점으로 복구합니다.\n" +
-        "현재 디스크 상태는 복구 전에 안전 스냅샷으로 자동 저장됩니다.";
+        `${formatTime(commit.timestamp)}\n` +
+        `${commit.short_hash} · ${commit.subject}\n\n` +
+        "Restore the entire workflows folder to this point.\n" +
+        "The current on-disk state will be saved automatically as a safety snapshot before restore.";
 
     if (app.extensionManager?.dialog?.confirm) {
         return await app.extensionManager.dialog.confirm({
-            title: "Workflow 전체 복구",
+            title: "Restore Entire Workflows Folder",
             message: text,
         });
     }
@@ -63,41 +69,180 @@ async function confirmRestore(commit) {
 
 function injectStyles() {
     if (document.getElementById("workflow-git-restore-style")) return;
+
     const style = document.createElement("style");
     style.id = "workflow-git-restore-style";
     style.textContent = `
-        .wgr-root { height:100%; display:flex; flex-direction:column; overflow:hidden; font-size:12px; color:var(--fg-color,#ddd); background:var(--comfy-menu-bg,transparent); }
-        .wgr-header { padding:10px; border-bottom:1px solid var(--border-color,#444); display:flex; flex-direction:column; gap:8px; }
-        .wgr-title-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-        .wgr-title { font-size:14px; font-weight:700; }
-        .wgr-badge { border:1px solid #3d8a52; border-radius:999px; padding:2px 7px; font-size:10px; white-space:nowrap; }
-        .wgr-path { opacity:.72; word-break:break-all; line-height:1.35; }
-        .wgr-toolbar { display:flex; gap:6px; }
-        .wgr-btn { border:1px solid var(--border-color,#555); background:var(--comfy-input-bg,#292929); color:inherit; border-radius:6px; padding:6px 8px; cursor:pointer; font-size:11px; }
-        .wgr-btn:hover { filter:brightness(1.16); }
-        .wgr-btn:disabled { opacity:.45; cursor:default; }
-        .wgr-btn-primary { border-color:#4b78c2; font-weight:700; }
-        .wgr-btn-danger { border-color:#b55050; font-weight:700; }
-        .wgr-search { width:100%; box-sizing:border-box; padding:7px 8px; border:1px solid var(--border-color,#555); border-radius:6px; background:var(--comfy-input-bg,#222); color:inherit; outline:none; }
-        .wgr-main { min-height:0; flex:1; overflow:auto; padding:8px; }
-        .wgr-commit { border:1px solid var(--border-color,#444); border-radius:8px; margin-bottom:7px; overflow:hidden; background:color-mix(in srgb,var(--comfy-menu-bg,#222) 88%,white 3%); }
-        .wgr-commit.selected { border-color:#4b78c2; }
-        .wgr-commit-head { padding:8px; cursor:pointer; display:flex; flex-direction:column; gap:4px; }
-        .wgr-commit-head:hover { background:rgba(255,255,255,.04); }
-        .wgr-time { font-weight:700; font-size:11px; }
-        .wgr-subject { opacity:.9; line-height:1.35; word-break:break-word; }
-        .wgr-meta { display:flex; gap:7px; opacity:.62; font-size:10px; }
-        .wgr-detail { border-top:1px solid var(--border-color,#444); padding:8px; display:flex; flex-direction:column; gap:8px; }
-        .wgr-files { display:flex; flex-direction:column; gap:3px; }
-        .wgr-file { display:flex; align-items:flex-start; gap:6px; padding:4px 5px; border-radius:4px; cursor:pointer; word-break:break-all; }
-        .wgr-file:hover { background:rgba(255,255,255,.05); }
-        .wgr-file-status { min-width:18px; font-weight:700; opacity:.75; }
-        .wgr-section-title { font-weight:700; margin-top:2px; }
-        .wgr-pre { margin:0; padding:8px; max-height:330px; overflow:auto; white-space:pre; tab-size:2; font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; border:1px solid var(--border-color,#444); border-radius:6px; background:rgba(0,0,0,.20); }
-        .wgr-empty,.wgr-error { padding:14px 8px; line-height:1.55; opacity:.8; }
-        .wgr-error { opacity:1; }
-        .wgr-footer-note { opacity:.62; line-height:1.45; font-size:10px; }
-        .wgr-loading { padding:8px 0; opacity:.65; }
+        .wgr-root {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-size: 12px;
+            color: var(--fg-color, #ddd);
+            background: var(--comfy-menu-bg, transparent);
+        }
+        .wgr-header {
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color, #444);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .wgr-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .wgr-title {
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .wgr-badge {
+            border: 1px solid #3d8a52;
+            border-radius: 999px;
+            padding: 2px 7px;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .wgr-path {
+            opacity: .72;
+            word-break: break-all;
+            line-height: 1.35;
+        }
+        .wgr-toolbar {
+            display: flex;
+            gap: 6px;
+        }
+        .wgr-btn {
+            border: 1px solid var(--border-color, #555);
+            background: var(--comfy-input-bg, #292929);
+            color: inherit;
+            border-radius: 6px;
+            padding: 6px 8px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .wgr-btn:hover { filter: brightness(1.16); }
+        .wgr-btn:disabled { opacity: .45; cursor: default; }
+        .wgr-btn-primary {
+            border-color: #4b78c2;
+            font-weight: 700;
+        }
+        .wgr-btn-danger {
+            border-color: #b55050;
+            font-weight: 700;
+        }
+        .wgr-search {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 7px 8px;
+            border: 1px solid var(--border-color, #555);
+            border-radius: 6px;
+            background: var(--comfy-input-bg, #222);
+            color: inherit;
+            outline: none;
+        }
+        .wgr-main {
+            min-height: 0;
+            flex: 1;
+            overflow: auto;
+            padding: 8px;
+        }
+        .wgr-commit {
+            border: 1px solid var(--border-color, #444);
+            border-radius: 8px;
+            margin-bottom: 7px;
+            overflow: hidden;
+            background: color-mix(in srgb, var(--comfy-menu-bg, #222) 88%, white 3%);
+        }
+        .wgr-commit.selected {
+            border-color: #4b78c2;
+        }
+        .wgr-commit-head {
+            padding: 8px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .wgr-commit-head:hover {
+            background: rgba(255,255,255,.04);
+        }
+        .wgr-time {
+            font-weight: 700;
+            font-size: 11px;
+        }
+        .wgr-subject {
+            opacity: .9;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+        .wgr-meta {
+            display: flex;
+            gap: 7px;
+            opacity: .62;
+            font-size: 10px;
+        }
+        .wgr-detail {
+            border-top: 1px solid var(--border-color, #444);
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .wgr-files {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .wgr-file {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 4px 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            word-break: break-all;
+        }
+        .wgr-file:hover { background: rgba(255,255,255,.05); }
+        .wgr-file-status {
+            min-width: 18px;
+            font-weight: 700;
+            opacity: .75;
+        }
+        .wgr-section-title {
+            font-weight: 700;
+            margin-top: 2px;
+        }
+        .wgr-pre {
+            margin: 0;
+            padding: 8px;
+            max-height: 330px;
+            overflow: auto;
+            white-space: pre;
+            tab-size: 2;
+            font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+            border: 1px solid var(--border-color, #444);
+            border-radius: 6px;
+            background: rgba(0,0,0,.20);
+        }
+        .wgr-empty, .wgr-error {
+            padding: 14px 8px;
+            line-height: 1.55;
+            opacity: .8;
+        }
+        .wgr-error { opacity: 1; }
+        .wgr-footer-note {
+            opacity: .62;
+            line-height: 1.45;
+            font-size: 10px;
+        }
+        .wgr-loading {
+            padding: 8px 0;
+            opacity: .65;
+        }
     `;
     document.head.appendChild(style);
 }
@@ -108,17 +253,21 @@ function baseMarkup() {
             <div class="wgr-header">
                 <div class="wgr-title-row">
                     <div class="wgr-title">Workflow Git History</div>
-                    <div class="wgr-badge" data-role="badge">확인 중</div>
+                    <div class="wgr-badge" data-role="badge">Checking…</div>
                 </div>
                 <div class="wgr-path" data-role="path"></div>
                 <div class="wgr-toolbar">
-                    <button class="wgr-btn wgr-btn-primary" data-role="snapshot">지금 백업</button>
-                    <button class="wgr-btn" data-role="refresh">새로고침</button>
+                    <button class="wgr-btn wgr-btn-primary" data-role="snapshot">Create Snapshot</button>
+                    <button class="wgr-btn" data-role="refresh">Refresh</button>
                 </div>
-                <input class="wgr-search" data-role="search" placeholder="파일명 / 커밋 내용 검색" />
+                <input class="wgr-search" data-role="search"
+                    placeholder="Search filename / commit message" />
             </div>
-            <div class="wgr-main" data-role="main"><div class="wgr-loading">Git 이력을 불러오는 중...</div></div>
-        </div>`;
+            <div class="wgr-main" data-role="main">
+                <div class="wgr-loading">Loading Git history…</div>
+            </div>
+        </div>
+    `;
 }
 
 async function renderPanel(container) {
@@ -135,9 +284,15 @@ async function renderPanel(container) {
         snapshotBtn.disabled = true;
         try {
             const data = await requestJson("/workflow-git/snapshot", {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
             });
-            toast("success", "Workflow Git", data.created ? "현재 상태를 새 커밋으로 저장했습니다." : "변경된 파일이 없습니다.");
+            toast(
+                "success",
+                "Workflow Git",
+                data.created ? "Current state saved as a new commit." : "No changed files to commit."
+            );
             await loadAll(container, search.value);
         } catch (error) {
             toast("error", "Workflow Git", error.message);
@@ -157,6 +312,7 @@ async function renderPanel(container) {
 
 async function loadAll(container, query = "") {
     if (!container?.isConnected) return;
+
     const main = container.querySelector('[data-role="main"]');
     const badge = container.querySelector('[data-role="badge"]');
     const path = container.querySelector('[data-role="path"]');
@@ -167,95 +323,147 @@ async function loadAll(container, query = "") {
             requestJson("/workflow-git/commits?limit=200"),
         ]);
 
-        if (!status.ready) throw new Error(status.error || "Workflow Git을 사용할 수 없습니다.");
-        badge.textContent = status.dirty ? "자동백업 ON · 변경 대기" : "자동백업 ON";
+        if (!status.ready) {
+            throw new Error(status.error || "Workflow Git is not available.");
+        }
+
+        badge.textContent = status.dirty ? "Auto Backup ON · Pending changes" : "Auto Backup ON";
         path.textContent = `${status.repo} · ${status.commit_count} commits`;
 
         const needle = query.trim().toLowerCase();
         const commits = history.commits.filter((commit) => {
             if (!needle) return true;
-            const haystack = [commit.subject, commit.short_hash, ...commit.files.map((f) => `${f.path} ${f.old_path || ""}`)].join(" ").toLowerCase();
+            const haystack = [
+                commit.subject,
+                commit.short_hash,
+                ...commit.files.map((f) => `${f.path} ${f.old_path || ""}`),
+            ].join(" ").toLowerCase();
             return haystack.includes(needle);
         });
 
         if (!commits.length) {
-            main.innerHTML = `<div class="wgr-empty">표시할 커밋이 없습니다.</div>`;
+            main.innerHTML = `<div class="wgr-empty">No commits to display.</div>`;
             return;
         }
 
         main.innerHTML = commits.map((commit) => {
             const selected = commit.hash === selectedHash ? " selected" : "";
-            const fileNames = commit.files.slice(0, 3).map((f) => escapeHtml(f.path)).join(", ");
-            const extra = commit.file_count > 3 ? ` 외 ${commit.file_count - 3}개` : "";
+            const fileNames = commit.files
+                .slice(0, 3)
+                .map((f) => escapeHtml(f.path))
+                .join(", ");
+            const extra = commit.file_count > 3 ? ` +${commit.file_count - 3} more` : "";
+
             return `
                 <div class="wgr-commit${selected}" data-hash="${commit.hash}">
                     <div class="wgr-commit-head" data-action="select">
                         <div class="wgr-time">${escapeHtml(formatTime(commit.timestamp))}</div>
                         <div class="wgr-subject">${escapeHtml(commit.subject)}</div>
-                        <div class="wgr-meta"><span>${escapeHtml(commit.short_hash)}</span><span>${commit.file_count} files</span></div>
+                        <div class="wgr-meta">
+                            <span>${escapeHtml(commit.short_hash)}</span>
+                            <span>${commit.file_count} files</span>
+                        </div>
                         ${fileNames ? `<div class="wgr-meta"><span>${fileNames}${extra}</span></div>` : ""}
                     </div>
                     <div data-role="detail"></div>
-                </div>`;
+                </div>
+            `;
         }).join("");
 
         for (const card of main.querySelectorAll(".wgr-commit")) {
             const hash = card.dataset.hash;
-            card.querySelector('[data-action="select"]').addEventListener("click", async () => {
+            const header = card.querySelector('[data-action="select"]');
+            header.addEventListener("click", async () => {
                 selectedHash = selectedHash === hash ? null : hash;
                 for (const el of main.querySelectorAll(".wgr-commit")) {
                     el.classList.toggle("selected", el.dataset.hash === selectedHash);
-                    if (el.dataset.hash !== selectedHash) el.querySelector('[data-role="detail"]').innerHTML = "";
+                    if (el.dataset.hash !== selectedHash) {
+                        el.querySelector('[data-role="detail"]').innerHTML = "";
+                    }
                 }
-                if (selectedHash) await loadDetail(card, commits.find((c) => c.hash === hash));
-                else card.querySelector('[data-role="detail"]').innerHTML = "";
+                if (selectedHash) {
+                    await loadDetail(card, commits.find((c) => c.hash === hash));
+                } else {
+                    card.querySelector('[data-role="detail"]').innerHTML = "";
+                }
             });
 
-            if (hash === selectedHash) await loadDetail(card, commits.find((c) => c.hash === hash));
+            if (hash === selectedHash) {
+                await loadDetail(card, commits.find((c) => c.hash === hash));
+            }
         }
     } catch (error) {
-        badge.textContent = "오류";
-        main.innerHTML = `<div class="wgr-error"><b>Workflow Git을 불러오지 못했습니다.</b><br><br>${escapeHtml(error.message)}</div>`;
+        badge.textContent = "Error";
+        main.innerHTML = `
+            <div class="wgr-error">
+                <b>Failed to load Workflow Git.</b><br><br>
+                ${escapeHtml(error.message)}
+            </div>
+        `;
     }
 }
 
 async function loadDetail(card, commit) {
     const detailEl = card.querySelector('[data-role="detail"]');
-    detailEl.innerHTML = `<div class="wgr-detail"><div class="wgr-loading">변경 내용을 읽는 중...</div></div>`;
+    detailEl.innerHTML = `<div class="wgr-detail"><div class="wgr-loading">Loading changes…</div></div>`;
 
     try {
         const data = await requestJson(`/workflow-git/commit/${commit.hash}`);
         const detail = data.commit;
+
         detailEl.innerHTML = `
             <div class="wgr-detail">
-                <div class="wgr-section-title">이 커밋에서 변경된 Workflow</div>
+                <div class="wgr-section-title">Workflows changed in this commit</div>
                 <div class="wgr-files">
                     ${detail.files.length ? detail.files.map((file) => `
-                        <div class="wgr-file" data-file="${escapeHtml(file.path)}" title="클릭하면 이 커밋의 파일 내용을 표시합니다.">
-                            <span class="wgr-file-status">${escapeHtml(file.status)}</span><span>${escapeHtml(file.path)}</span>
-                        </div>`).join("") : `<div class="wgr-empty">변경 파일 정보 없음</div>`}
+                        <div class="wgr-file"
+                            data-file="${escapeHtml(file.path)}"
+                            title="Click to view this file as stored in this commit.">
+                            <span class="wgr-file-status">${escapeHtml(file.status)}</span>
+                            <span>${escapeHtml(file.path)}</span>
+                        </div>
+                    `).join("") : `<div class="wgr-empty">No changed-file information</div>`}
                 </div>
-                <div class="wgr-toolbar"><button class="wgr-btn wgr-btn-danger" data-action="restore">이 시점으로 전체 복구</button></div>
-                <div class="wgr-footer-note">복구 직전 현재 디스크 상태를 Safety snapshot으로 먼저 저장합니다. 복구 후에는 열린 캔버스를 다시 열어야 디스크의 복구본이 표시됩니다.</div>
-                <div class="wgr-section-title">변경 내용 (diff)</div>
-                <pre class="wgr-pre" data-role="content">${escapeHtml(detail.diff || "(diff 없음)")}</pre>
-            </div>`;
+
+                <div class="wgr-toolbar">
+                    <button class="wgr-btn wgr-btn-danger" data-action="restore">
+                        Restore entire folder to this point
+                    </button>
+                </div>
+
+                <div class="wgr-footer-note">
+                    The current on-disk state is saved as a Safety Snapshot before restore.
+                    After restore, reopen any already-open workflow to load the restored file from disk.
+                </div>
+
+                <div class="wgr-section-title">Changes (diff)</div>
+                <pre class="wgr-pre" data-role="content">${escapeHtml(detail.diff || "(no diff)")}</pre>
+            </div>
+        `;
 
         const content = detailEl.querySelector('[data-role="content"]');
+
         for (const fileEl of detailEl.querySelectorAll(".wgr-file")) {
             fileEl.addEventListener("click", async () => {
-                const filePath = fileEl.dataset.file;
-                content.textContent = "파일 내용을 읽는 중...";
+                const path = fileEl.dataset.file;
+                content.textContent = "Loading file contents…";
                 try {
-                    const fileData = await requestJson(`/workflow-git/file/${commit.hash}?path=${encodeURIComponent(filePath)}`);
+                    const fileData = await requestJson(
+                        `/workflow-git/file/${commit.hash}?path=${encodeURIComponent(path)}`
+                    );
                     const file = fileData.file;
-                    let shown = file.exists ? file.content : "(이 커밋에는 파일이 없습니다.)";
-                    if (file.exists && filePath.toLowerCase().endsWith(".json")) {
-                        try { shown = JSON.stringify(JSON.parse(file.content), null, 2); } catch {}
+                    let shown = file.exists ? file.content : "(This file does not exist in this commit.)";
+
+                    if (file.exists && path.toLowerCase().endsWith(".json")) {
+                        try {
+                            shown = JSON.stringify(JSON.parse(file.content), null, 2);
+                        } catch {
+                            // Keep raw content if JSON parsing fails/truncated.
+                        }
                     }
                     content.textContent = shown;
                 } catch (error) {
-                    content.textContent = `오류: ${error.message}`;
+                    content.textContent = `Error: ${error.message}`;
                 }
             });
         }
@@ -263,9 +471,11 @@ async function loadDetail(card, commit) {
         const restoreBtn = detailEl.querySelector('[data-action="restore"]');
         restoreBtn.addEventListener("click", async (event) => {
             event.stopPropagation();
-            if (!(await confirmRestore(commit))) return;
+            const confirmed = await confirmRestore(commit);
+            if (!confirmed) return;
+
             restoreBtn.disabled = true;
-            restoreBtn.textContent = "복구 중...";
+            restoreBtn.textContent = "Restoring…";
 
             try {
                 const result = await requestJson("/workflow-git/restore", {
@@ -273,13 +483,18 @@ async function loadDetail(card, commit) {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ commit: commit.hash }),
                 });
+
                 selectedHash = result.new_head?.hash || null;
-                toast("success", "Workflow 복구 완료", `${commit.short_hash} 시점으로 복구했습니다. 열린 Workflow는 다시 열어주세요.`);
+                toast(
+                    "success",
+                    "Workflow Restore Complete",
+                    `Restored to ${commit.short_hash}. Reopen any already-open workflow to load the restored file.`
+                );
                 await loadAll(activeContainer, activeContainer?.querySelector('[data-role="search"]')?.value || "");
             } catch (error) {
-                toast("error", "Workflow 복구 실패", error.message);
+                toast("error", "Workflow Restore Failed", error.message);
                 restoreBtn.disabled = false;
-                restoreBtn.textContent = "이 시점으로 전체 복구";
+                restoreBtn.textContent = "Restore entire folder to this point";
             }
         });
     } catch (error) {
@@ -289,16 +504,26 @@ async function loadDetail(card, commit) {
 
 app.registerExtension({
     name: EXT,
+
     async setup() {
         injectStyles();
+
         app.extensionManager.registerSidebarTab({
             id: SIDEBAR_ID,
             icon: "pi pi-history",
             title: "Workflow Git",
             tooltip: "Workflow Git History / Restore",
             type: "custom",
-            render: (container) => renderPanel(container),
-            destroy: () => { activeContainer = null; },
+            render: (container) => {
+                renderPanel(container);
+            },
+            destroy: () => {
+                activeContainer = null;
+                if (refreshTimer) {
+                    clearInterval(refreshTimer);
+                    refreshTimer = null;
+                }
+            },
         });
     },
 });
