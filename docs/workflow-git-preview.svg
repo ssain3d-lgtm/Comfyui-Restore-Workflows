@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+  <rect width="1440" height="900" fill="#151515"/>
+  <rect x="0" y="0" width="88" height="900" fill="#1e1e1e"/>
+  <rect x="88" y="0" width="1352" height="58" fill="#202020"/>
+  <text x="118" y="37" fill="#efefef" font-family="Segoe UI, Arial" font-size="20" font-weight="700">ComfyUI</text>
+  <circle cx="44" cy="100" r="18" fill="#2e2e2e" stroke="#666"/>
+  <text x="36" y="107" fill="#ddd" font-family="Arial" font-size="20">↶</text>
+  <circle cx="44" cy="154" r="18" fill="#355a90"/>
+  <text x="35" y="161" fill="#fff" font-family="Arial" font-size="20">⏱</text>
+
+  <rect x="104" y="78" width="430" height="790" rx="10" fill="#222" stroke="#454545"/>
+  <text x="128" y="112" fill="#f2f2f2" font-family="Segoe UI, Arial" font-size="20" font-weight="700">Workflow Git History</text>
+  <rect x="396" y="92" width="112" height="26" rx="13" fill="none" stroke="#4c9a5f"/>
+  <text x="411" y="110" fill="#a9dfb5" font-family="Segoe UI, Arial" font-size="12">자동백업 ON</text>
+  <text x="128" y="142" fill="#9d9d9d" font-family="Segoe UI, Arial" font-size="11">D:\ComfyUI\user\default\workflows · 127 commits</text>
+
+  <rect x="128" y="160" width="90" height="32" rx="6" fill="#2b2b2b" stroke="#4b78c2"/>
+  <text x="149" y="181" fill="#fff" font-family="Segoe UI, Arial" font-size="12" font-weight="700">지금 백업</text>
+  <rect x="226" y="160" width="76" height="32" rx="6" fill="#2b2b2b" stroke="#555"/>
+  <text x="242" y="181" fill="#ddd" font-family="Segoe UI, Arial" font-size="12">새로고침</text>
+  <rect x="128" y="204" width="380" height="34" rx="6" fill="#191919" stroke="#555"/>
+  <text x="142" y="226" fill="#777" font-family="Segoe UI, Arial" font-size="12">파일명 / 커밋 내용 검색</text>
+
+  <rect x="124" y="254" width="388" height="98" rx="8" fill="#292929" stroke="#4b78c2" stroke-width="2"/>
+  <text x="140" y="278" fill="#fff" font-family="Segoe UI, Arial" font-size="13" font-weight="700">2026. 09. 06. 12:42:18</text>
+  <text x="140" y="300" fill="#e3e3e3" font-family="Segoe UI, Arial" font-size="12">Auto backup 2026-09-06 12:42:18 (2 changed)</text>
+  <text x="140" y="321" fill="#8e8e8e" font-family="Consolas, monospace" font-size="11">c9a12ef · 2 files</text>
+  <text x="140" y="340" fill="#888" font-family="Segoe UI, Arial" font-size="11">MiniMaxH3_IV2V(Turbo)_개선.json, CharacterSheet.json</text>
+
+  <rect x="124" y="360" width="388" height="414" rx="8" fill="#242424" stroke="#444"/>
+  <text x="140" y="388" fill="#f0f0f0" font-family="Segoe UI, Arial" font-size="13" font-weight="700">이 커밋에서 변경된 Workflow</text>
+  <text x="140" y="416" fill="#bbb" font-family="Consolas, monospace" font-size="12">M  MiniMaxH3_IV2V(Turbo)_개선.json</text>
+  <text x="140" y="440" fill="#bbb" font-family="Consolas, monospace" font-size="12">M  CharacterSheet.json</text>
+  <rect x="140" y="458" width="142" height="34" rx="6" fill="#2d2525" stroke="#b55050"/>
+  <text x="157" y="480" fill="#ffdada" font-family="Segoe UI, Arial" font-size="12" font-weight="700">이 시점으로 전체 복구</text>
+  <text x="140" y="516" fill="#8a8a8a" font-family="Segoe UI, Arial" font-size="11">복구 직전 현재 상태를 Safety snapshot으로 자동 저장</text>
+  <text x="140" y="546" fill="#f0f0f0" font-family="Segoe UI, Arial" font-size="13" font-weight="700">변경 내용 (diff)</text>
+  <rect x="140" y="560" width="350" height="190" rx="6" fill="#171717" stroke="#3c3c3c"/>
+  <text x="152" y="584" fill="#9f9f9f" font-family="Consolas, monospace" font-size="11">@@ workflow diff @@</text>
+  <text x="152" y="606" fill="#ff9f9f" font-family="Consolas, monospace" font-size="11">- "strength_model": 0.55</text>
+  <text x="152" y="628" fill="#9dffad" font-family="Consolas, monospace" font-size="11">+ "strength_model": 0.60</text>
+  <text x="152" y="650" fill="#9dffad" font-family="Consolas, monospace" font-size="11">+ "scheduler": "basic"</text>
+  <text x="152" y="672" fill="#9f9f9f" font-family="Consolas, monospace" font-size="11">  "steps": 4</text>
+
+  <rect x="558" y="78" width="850" height="790" rx="10" fill="#1c1c1c" stroke="#3b3b3b"/>
+  <text x="586" y="112" fill="#e9e9e9" font-family="Segoe UI, Arial" font-size="18" font-weight="700">Workflow Canvas</text>
+
+  <g font-family="Segoe UI, Arial" font-size="13">
+    <rect x="630" y="176" width="210" height="138" rx="10" fill="#2b2b2b" stroke="#765ca8"/>
+    <rect x="630" y="176" width="210" height="34" rx="10" fill="#403157"/>
+    <text x="646" y="198" fill="#fff" font-weight="700">Load Image</text>
+    <text x="648" y="236" fill="#bcbcbc">reference_01.png</text>
+    <circle cx="830" cy="250" r="6" fill="#b87ee8"/>
+
+    <rect x="935" y="146" width="258" height="164" rx="10" fill="#2b2b2b" stroke="#4f79b6"/>
+    <rect x="935" y="146" width="258" height="34" rx="10" fill="#314766"/>
+    <text x="951" y="168" fill="#fff" font-weight="700">MiniMax H3 Reference</text>
+    <text x="952" y="208" fill="#bcbcbc">Picture 1 → Character Identity</text>
+    <text x="952" y="234" fill="#bcbcbc">VAE Reference: Enabled</text>
+    <text x="952" y="260" fill="#bcbcbc">Weight: 1.00</text>
+    <circle cx="945" cy="250" r="6" fill="#b87ee8"/>
+
+    <rect x="790" y="430" width="268" height="190" rx="10" fill="#2b2b2b" stroke="#5b8c5a"/>
+    <rect x="790" y="430" width="268" height="34" rx="10" fill="#365035"/>
+    <text x="806" y="452" fill="#fff" font-weight="700">MiniMax H3 Turbo Sampler</text>
+    <text x="808" y="492" fill="#bcbcbc">steps: 4</text>
+    <text x="808" y="518" fill="#bcbcbc">cfg: 1.0</text>
+    <text x="808" y="544" fill="#bcbcbc">scheduler: basic</text>
+    <text x="808" y="570" fill="#bcbcbc">seed: 120493</text>
+    <circle cx="798" cy="505" r="6" fill="#7ebc7a"/>
+
+    <rect x="1116" y="476" width="206" height="124" rx="10" fill="#2b2b2b" stroke="#b58a4b"/>
+    <rect x="1116" y="476" width="206" height="34" rx="10" fill="#674d2b"/>
+    <text x="1132" y="498" fill="#fff" font-weight="700">Save Image</text>
+    <text x="1132" y="538" fill="#bcbcbc">workflow output</text>
+    <circle cx="1124" cy="548" r="6" fill="#7ebc7a"/>
+  </g>
+
+  <path d="M836 250 C880 250, 890 250, 941 250" fill="none" stroke="#b87ee8" stroke-width="4"/>
+  <path d="M1065 264 C1090 330, 970 355, 925 430" fill="none" stroke="#7ebc7a" stroke-width="4"/>
+  <path d="M1058 520 C1085 520, 1088 548, 1118 548" fill="none" stroke="#7ebc7a" stroke-width="4"/>
+
+  <rect x="104" y="820" width="430" height="48" rx="8" fill="#1c251e" stroke="#3f6f49"/>
+  <text x="126" y="850" fill="#b7e3bf" font-family="Segoe UI, Arial" font-size="12">Restore is non-destructive: Safety Snapshot → Restore Commit</text>
+</svg>
