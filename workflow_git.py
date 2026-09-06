@@ -45,9 +45,16 @@ class WorkflowGitManager:
             self.error = str(exc)
             print(f"{PREFIX} disabled: {exc}")
 
-    def _run_git(self, *args: str, check: bool = False, text: bool = True) -> subprocess.CompletedProcess:
+    def _run_git(
+        self,
+        *args: str,
+        check: bool = False,
+        text: bool = True,
+    ) -> subprocess.CompletedProcess:
         if not self.git:
-            raise WorkflowGitError("git.exe를 찾지 못했습니다. Git for Windows를 설치하고 PATH에 추가하세요.")
+            raise WorkflowGitError(
+                "git.exe was not found. Install Git for Windows and make sure Git is available in PATH."
+            )
 
         creationflags = 0
         if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
@@ -75,21 +82,32 @@ class WorkflowGitManager:
         self.repo.mkdir(parents=True, exist_ok=True)
 
         if not self.git:
-            raise WorkflowGitError("Git for Windows가 필요합니다. 설치 후 ComfyUI를 다시 실행하세요.")
+            raise WorkflowGitError(
+                "Git for Windows is required. Install it and restart ComfyUI."
+            )
 
         with self.lock:
             if not (self.repo / ".git").exists():
                 self._run_git("init", check=True)
                 print(f"{PREFIX} git init: {self.repo}")
 
+            # Repository-local only. User/global Git settings are not changed.
             if self._run_git("config", "--get", "user.name").returncode != 0:
-                self._run_git("config", "user.name", "ComfyUI Workflow Backup", check=True)
+                self._run_git(
+                    "config", "user.name", "ComfyUI Workflow Backup", check=True
+                )
             if self._run_git("config", "--get", "user.email").returncode != 0:
-                self._run_git("config", "user.email", "comfyui-workflow-backup@local", check=True)
+                self._run_git(
+                    "config",
+                    "user.email",
+                    "comfyui-workflow-backup@local",
+                    check=True,
+                )
 
             self._run_git("config", "core.autocrlf", "false", check=True)
             self._run_git("config", "core.filemode", "false", check=True)
 
+            # Ignore OS junk without creating a .gitignore inside the workflows folder.
             exclude = self.repo / ".git" / "info" / "exclude"
             exclude.parent.mkdir(parents=True, exist_ok=True)
             existing = exclude.read_text(encoding="utf-8", errors="ignore") if exclude.exists() else ""
@@ -98,13 +116,25 @@ class WorkflowGitManager:
                 with exclude.open("a", encoding="utf-8") as f:
                     if existing and not existing.endswith("\n"):
                         f.write("\n")
-                    f.write(f"{marker}\nThumbs.db\n.DS_Store\n")
+                    f.write(
+                        f"{marker}\n"
+                        "Thumbs.db\n"
+                        ".DS_Store\n"
+                    )
 
-            has_head = self._run_git("rev-parse", "--verify", "HEAD").returncode == 0
+            has_head = (
+                self._run_git("rev-parse", "--verify", "HEAD").returncode == 0
+            )
             if not has_head:
                 self._run_git("add", "-A", check=True)
                 stamp = self._now()
-                self._run_git("commit", "--allow-empty", "-m", f"Initial workflow snapshot {stamp}", check=True)
+                self._run_git(
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    f"Initial workflow snapshot {stamp}",
+                    check=True,
+                )
                 print(f"{PREFIX} initial snapshot created")
             else:
                 self.commit_if_dirty("Startup snapshot")
@@ -114,7 +144,10 @@ class WorkflowGitManager:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def _status_porcelain(self) -> str:
-        return self._run_git("status", "--porcelain=v1", "--untracked-files=all", check=True).stdout
+        result = self._run_git(
+            "status", "--porcelain=v1", "--untracked-files=all", check=True
+        )
+        return result.stdout
 
     def commit_if_dirty(self, label: str = "Auto backup") -> dict[str, Any] | None:
         with self.lock:
@@ -126,7 +159,9 @@ class WorkflowGitManager:
             if self._run_git("diff", "--cached", "--quiet").returncode == 0:
                 return None
 
-            changed_count = len([line for line in status.splitlines() if line.strip()])
+            changed_count = len(
+                [line for line in status.splitlines() if line.strip()]
+            )
             message = f"{label} {self._now()} ({changed_count} changed)"
             self._run_git("commit", "-m", message, check=True)
             head = self._head()
@@ -141,6 +176,7 @@ class WorkflowGitManager:
         for dirpath, dirnames, filenames in os.walk(self.repo):
             dirnames[:] = [d for d in dirnames if d != ".git"]
             base = Path(dirpath)
+
             for filename in filenames:
                 path = base / filename
                 try:
@@ -149,11 +185,20 @@ class WorkflowGitManager:
                     snapshot[rel] = (stat.st_mtime_ns, stat.st_size)
                 except (FileNotFoundError, PermissionError, OSError):
                     continue
+
         return snapshot
 
     def _start_watcher(self) -> None:
-        threading.Thread(target=self._watch_loop, name="ComfyUI-Workflow-Git-Watcher", daemon=True).start()
-        print(f"{PREFIX} watching {self.repo} (auto commit after {DEBOUNCE_SECONDS:.0f}s idle)")
+        thread = threading.Thread(
+            target=self._watch_loop,
+            name="ComfyUI-Workflow-Git-Watcher",
+            daemon=True,
+        )
+        thread.start()
+        print(
+            f"{PREFIX} watching {self.repo} "
+            f"(auto commit after {DEBOUNCE_SECONDS:.0f}s idle)"
+        )
 
     def _watch_loop(self) -> None:
         previous = self._snapshot()
@@ -167,7 +212,10 @@ class WorkflowGitManager:
                     dirty_since = time.monotonic()
                     continue
 
-                if dirty_since is not None and time.monotonic() - dirty_since >= DEBOUNCE_SECONDS:
+                if (
+                    dirty_since is not None
+                    and time.monotonic() - dirty_since >= DEBOUNCE_SECONDS
+                ):
                     self.commit_if_dirty("Auto backup")
                     dirty_since = None
                     previous = self._snapshot()
@@ -175,18 +223,36 @@ class WorkflowGitManager:
                 print(f"{PREFIX} watcher error: {exc}")
 
     def _head(self) -> dict[str, str]:
-        result = self._run_git("log", "-1", "--date=iso-strict", "--pretty=format:%H%x1f%h%x1f%aI%x1f%s", check=True)
+        result = self._run_git(
+            "log",
+            "-1",
+            "--date=iso-strict",
+            "--pretty=format:%H%x1f%h%x1f%aI%x1f%s",
+            check=True,
+        )
         parts = result.stdout.split("\x1f", 3)
         if len(parts) != 4:
             return {}
-        return {"hash": parts[0], "short_hash": parts[1], "timestamp": parts[2], "subject": parts[3]}
+        return {
+            "hash": parts[0],
+            "short_hash": parts[1],
+            "timestamp": parts[2],
+            "subject": parts[3],
+        }
 
     def status(self) -> dict[str, Any]:
         if not self.ready:
-            return {"ready": False, "error": self.error or "unknown error", "repo": str(self.repo), "git": self.git}
+            return {
+                "ready": False,
+                "error": self.error or "unknown error",
+                "repo": str(self.repo),
+                "git": self.git,
+            }
 
         with self.lock:
-            count = self._run_git("rev-list", "--count", "HEAD", check=True).stdout.strip()
+            count = self._run_git(
+                "rev-list", "--count", "HEAD", check=True
+            ).stdout.strip()
             return {
                 "ready": True,
                 "repo": str(self.repo),
@@ -202,9 +268,15 @@ class WorkflowGitManager:
         limit = max(1, min(int(limit), 500))
         with self.lock:
             result = self._run_git(
-                "log", f"-n{limit}", "--date=iso-strict",
+                "log",
+                f"-n{limit}",
+                "--date=iso-strict",
                 "--pretty=format:@@COMMIT@@%n%H%x1f%h%x1f%aI%x1f%s",
-                "--name-status", "--find-renames", "--", ".", check=True,
+                "--name-status",
+                "--find-renames",
+                "--",
+                ".",
+                check=True,
             )
 
         commits: list[dict[str, Any]] = []
@@ -225,76 +297,177 @@ class WorkflowGitManager:
                 cols = line.split("\t")
                 status = cols[0]
                 if status.startswith("R") and len(cols) >= 3:
-                    files.append({"status": status, "path": cols[2], "old_path": cols[1]})
+                    files.append(
+                        {
+                            "status": status,
+                            "path": cols[2],
+                            "old_path": cols[1],
+                        }
+                    )
                 elif len(cols) >= 2:
                     files.append({"status": status, "path": cols[1]})
 
-            commits.append({
-                "hash": meta[0], "short_hash": meta[1], "timestamp": meta[2],
-                "subject": meta[3], "files": files, "file_count": len(files),
-            })
+            commits.append(
+                {
+                    "hash": meta[0],
+                    "short_hash": meta[1],
+                    "timestamp": meta[2],
+                    "subject": meta[3],
+                    "files": files,
+                    "file_count": len(files),
+                }
+            )
+
         return commits
 
     def _validate_commit(self, commit_hash: str) -> str:
         if not HASH_RE.fullmatch(commit_hash or ""):
-            raise WorkflowGitError("올바르지 않은 커밋 ID입니다.")
+            raise WorkflowGitError("Invalid commit ID.")
 
-        result = self._run_git("rev-parse", "--verify", f"{commit_hash}^{{commit}}")
+        result = self._run_git(
+            "rev-parse", "--verify", f"{commit_hash}^{{commit}}"
+        )
         if result.returncode != 0:
-            raise WorkflowGitError("존재하지 않는 커밋입니다.")
+            raise WorkflowGitError("Commit does not exist.")
 
         full_hash = result.stdout.strip()
-        if self._run_git("merge-base", "--is-ancestor", full_hash, "HEAD").returncode != 0:
-            raise WorkflowGitError("현재 Workflow Git 이력에 없는 커밋입니다.")
+        # Only allow commits reachable from this repository's current history.
+        ancestor = self._run_git(
+            "merge-base", "--is-ancestor", full_hash, "HEAD"
+        )
+        if ancestor.returncode != 0:
+            raise WorkflowGitError("This commit is not part of the current Workflow Git history.")
+
         return full_hash
 
     def commit_detail(self, commit_hash: str) -> dict[str, Any]:
         full_hash = self._validate_commit(commit_hash)
         with self.lock:
-            meta = self._run_git("show", "-s", "--date=iso-strict", "--pretty=format:%H%x1f%h%x1f%aI%x1f%s", full_hash, check=True).stdout.split("\x1f", 3)
-            diff = self._run_git("show", "--format=", "--find-renames", "--no-ext-diff", "--unified=3", full_hash, "--", ".", check=True).stdout
+            meta = self._run_git(
+                "show",
+                "-s",
+                "--date=iso-strict",
+                "--pretty=format:%H%x1f%h%x1f%aI%x1f%s",
+                full_hash,
+                check=True,
+            ).stdout.split("\x1f", 3)
+
+            diff = self._run_git(
+                "show",
+                "--format=",
+                "--find-renames",
+                "--no-ext-diff",
+                "--unified=3",
+                full_hash,
+                "--",
+                ".",
+                check=True,
+            ).stdout
+
             truncated = len(diff) > MAX_DIFF_CHARS
             if truncated:
                 diff = diff[:MAX_DIFF_CHARS] + "\n\n... [diff truncated]"
 
         commits = self.list_commits(500)
-        files = next((c["files"] for c in commits if c["hash"] == full_hash), [])
-        return {"hash": meta[0], "short_hash": meta[1], "timestamp": meta[2], "subject": meta[3], "files": files, "diff": diff, "diff_truncated": truncated}
+        files = next(
+            (c["files"] for c in commits if c["hash"] == full_hash), []
+        )
+
+        return {
+            "hash": meta[0],
+            "short_hash": meta[1],
+            "timestamp": meta[2],
+            "subject": meta[3],
+            "files": files,
+            "diff": diff,
+            "diff_truncated": truncated,
+        }
 
     def file_at_commit(self, commit_hash: str, path: str) -> dict[str, Any]:
         full_hash = self._validate_commit(commit_hash)
         path = (path or "").replace("\\", "/").lstrip("/")
         if not path or path.startswith(".git/") or "/../" in f"/{path}/":
-            raise WorkflowGitError("올바르지 않은 파일 경로입니다.")
+            raise WorkflowGitError("Invalid file path.")
 
         with self.lock:
-            names = self._run_git("ls-tree", "-r", "--name-only", full_hash, check=True).stdout.splitlines()
-            if path not in names:
-                return {"path": path, "exists": False, "content": "", "truncated": False}
+            names = self._run_git(
+                "ls-tree", "-r", "--name-only", full_hash, check=True
+            ).stdout.splitlines()
 
-            content = self._run_git("show", f"{full_hash}:{path}", check=True).stdout
+            if path not in names:
+                return {
+                    "path": path,
+                    "exists": False,
+                    "content": "",
+                    "truncated": False,
+                }
+
+            result = self._run_git(
+                "show", f"{full_hash}:{path}", check=True
+            )
+            content = result.stdout
             truncated = len(content) > MAX_FILE_CHARS
             if truncated:
                 content = content[:MAX_FILE_CHARS] + "\n\n... [file truncated]"
 
-        return {"path": path, "exists": True, "content": content, "truncated": truncated}
+        return {
+            "path": path,
+            "exists": True,
+            "content": content,
+            "truncated": truncated,
+        }
 
     def restore(self, commit_hash: str) -> dict[str, Any]:
         full_hash = self._validate_commit(commit_hash)
 
         with self.lock:
+            # Preserve every on-disk change before touching the working tree.
             safety = self.commit_if_dirty("Safety snapshot before restore")
-            target = self._run_git("show", "-s", "--pretty=format:%h%x1f%s", full_hash, check=True).stdout.split("\x1f", 1)
+            target = self._run_git(
+                "show",
+                "-s",
+                "--pretty=format:%h%x1f%s",
+                full_hash,
+                check=True,
+            ).stdout.split("\x1f", 1)
             short_hash = target[0]
             subject = target[1] if len(target) > 1 else ""
 
-            self._run_git("restore", f"--source={full_hash}", "--staged", "--worktree", "--", ".", check=True)
-            message = f"Restore workflows to {short_hash} - {subject} ({self._now()})"
-            self._run_git("commit", "--allow-empty", "-m", message, check=True)
+            # Restore index + working tree to the exact tracked tree of target.
+            # Because we commit all current files first, files not present in the
+            # target are tracked and are therefore removed by this restore.
+            self._run_git(
+                "restore",
+                f"--source={full_hash}",
+                "--staged",
+                "--worktree",
+                "--",
+                ".",
+                check=True,
+            )
+
+            # If target equals current tree, still keep an auditable restore event.
+            message = (
+                f"Restore workflows to {short_hash} - {subject} "
+                f"({self._now()})"
+            )
+            self._run_git(
+                "commit",
+                "--allow-empty",
+                "-m",
+                message,
+                check=True,
+            )
+
             head = self._head()
             print(f"{PREFIX} {message}")
 
-        return {"restored_to": full_hash, "new_head": head, "safety_snapshot": safety, "message": message}
+        return {
+            "restored_to": full_hash,
+            "new_head": head,
+            "safety_snapshot": safety,
+            "message": message,
+        }
 
 
 manager = WorkflowGitManager()
@@ -326,7 +499,9 @@ async def workflow_git_commits(request: web.Request) -> web.Response:
 @routes.get("/workflow-git/commit/{commit_hash}")
 async def workflow_git_commit(request: web.Request) -> web.Response:
     try:
-        detail = await asyncio.to_thread(manager.commit_detail, request.match_info["commit_hash"])
+        detail = await asyncio.to_thread(
+            manager.commit_detail, request.match_info["commit_hash"]
+        )
         return web.json_response({"ok": True, "commit": detail})
     except WorkflowGitError as exc:
         return json_error(str(exc), 400)
@@ -337,7 +512,12 @@ async def workflow_git_commit(request: web.Request) -> web.Response:
 @routes.get("/workflow-git/file/{commit_hash}")
 async def workflow_git_file(request: web.Request) -> web.Response:
     try:
-        detail = await asyncio.to_thread(manager.file_at_commit, request.match_info["commit_hash"], request.query.get("path", ""))
+        path = request.query.get("path", "")
+        detail = await asyncio.to_thread(
+            manager.file_at_commit,
+            request.match_info["commit_hash"],
+            path,
+        )
         return web.json_response({"ok": True, "file": detail})
     except WorkflowGitError as exc:
         return json_error(str(exc), 400)
@@ -348,8 +528,16 @@ async def workflow_git_file(request: web.Request) -> web.Response:
 @routes.post("/workflow-git/snapshot")
 async def workflow_git_snapshot(request: web.Request) -> web.Response:
     try:
-        head = await asyncio.to_thread(manager.commit_if_dirty, "Manual snapshot")
-        return web.json_response({"ok": True, "created": head is not None, "head": head or manager._head()})
+        head = await asyncio.to_thread(
+            manager.commit_if_dirty, "Manual snapshot"
+        )
+        return web.json_response(
+            {
+                "ok": True,
+                "created": head is not None,
+                "head": head or manager._head(),
+            }
+        )
     except Exception as exc:
         return json_error(str(exc), 500)
 
@@ -358,7 +546,8 @@ async def workflow_git_snapshot(request: web.Request) -> web.Response:
 async def workflow_git_restore(request: web.Request) -> web.Response:
     try:
         body = await request.json()
-        result = await asyncio.to_thread(manager.restore, body.get("commit", ""))
+        commit_hash = body.get("commit", "")
+        result = await asyncio.to_thread(manager.restore, commit_hash)
         return web.json_response({"ok": True, **result})
     except WorkflowGitError as exc:
         return json_error(str(exc), 400)
