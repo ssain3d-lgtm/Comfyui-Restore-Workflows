@@ -1,0 +1,7 @@
+from .workflow_git import manager  # noqa: F401
+
+WEB_DIRECTORY = "./web/js"
+NODE_CLASS_MAPPINGS = {}
+NODE_DISPLAY_NAME_MAPPINGS = {}
+
+__all__ = ["WEB_DIRECTORY", "NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
