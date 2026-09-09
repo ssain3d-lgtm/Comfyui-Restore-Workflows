@@ -6,7 +6,7 @@ const SIDEBAR_ID = "workflow-git-restore";
 
 let activeContainer = null;
 let selectedHash = null;
-let refreshTimer = null;
+let cachedCommits = [];
 
 function escapeHtml(value) {
     return String(value ?? "")
@@ -301,10 +301,8 @@ async function renderPanel(container) {
         }
     });
 
-    let debounce;
     search.addEventListener("input", () => {
-        clearTimeout(debounce);
-        debounce = setTimeout(() => loadAll(container, search.value), 150);
+        renderCommits(container, search.value);
     });
 
     await loadAll(container, "");
@@ -327,71 +325,11 @@ async function loadAll(container, query = "") {
             throw new Error(status.error || "Workflow Git is not available.");
         }
 
-        badge.textContent = status.dirty ? "Auto Backup ON · Pending changes" : "Auto Backup ON";
-        path.textContent = `${status.repo} · ${status.commit_count} commits`;
+        badge.textContent = status.dirty ? "Auto Backup ON \u00b7 Pending changes" : "Auto Backup ON";
+        path.textContent = `${status.repo} \u00b7 ${status.commit_count} commits`;
 
-        const needle = query.trim().toLowerCase();
-        const commits = history.commits.filter((commit) => {
-            if (!needle) return true;
-            const haystack = [
-                commit.subject,
-                commit.short_hash,
-                ...commit.files.map((f) => `${f.path} ${f.old_path || ""}`),
-            ].join(" ").toLowerCase();
-            return haystack.includes(needle);
-        });
-
-        if (!commits.length) {
-            main.innerHTML = `<div class="wgr-empty">No commits to display.</div>`;
-            return;
-        }
-
-        main.innerHTML = commits.map((commit) => {
-            const selected = commit.hash === selectedHash ? " selected" : "";
-            const fileNames = commit.files
-                .slice(0, 3)
-                .map((f) => escapeHtml(f.path))
-                .join(", ");
-            const extra = commit.file_count > 3 ? ` +${commit.file_count - 3} more` : "";
-
-            return `
-                <div class="wgr-commit${selected}" data-hash="${commit.hash}">
-                    <div class="wgr-commit-head" data-action="select">
-                        <div class="wgr-time">${escapeHtml(formatTime(commit.timestamp))}</div>
-                        <div class="wgr-subject">${escapeHtml(commit.subject)}</div>
-                        <div class="wgr-meta">
-                            <span>${escapeHtml(commit.short_hash)}</span>
-                            <span>${commit.file_count} files</span>
-                        </div>
-                        ${fileNames ? `<div class="wgr-meta"><span>${fileNames}${extra}</span></div>` : ""}
-                    </div>
-                    <div data-role="detail"></div>
-                </div>
-            `;
-        }).join("");
-
-        for (const card of main.querySelectorAll(".wgr-commit")) {
-            const hash = card.dataset.hash;
-            const header = card.querySelector('[data-action="select"]');
-            header.addEventListener("click", async () => {
-                selectedHash = selectedHash === hash ? null : hash;
-                for (const el of main.querySelectorAll(".wgr-commit")) {
-                    el.classList.toggle("selected", el.dataset.hash === selectedHash);
-                    if (el.dataset.hash !== selectedHash) {
-                        el.querySelector('[data-role="detail"]').innerHTML = "";
-                    }
-                }
-                if (selectedHash) {
-                    await loadDetail(card, commits.find((c) => c.hash === hash));
-                } else {
-                    card.querySelector('[data-role="detail"]').innerHTML = "";
-                }
-            });
-
-            if (hash === selectedHash) {
-                await loadDetail(card, commits.find((c) => c.hash === hash));
-            }
-        }
+        cachedCommits = history.commits;
+        renderCommits(container, query);
     } catch (error) {
         badge.textContent = "Error";
         main.innerHTML = `
@@ -400,6 +338,77 @@ async function loadAll(container, query = "") {
                 ${escapeHtml(error.message)}
             </div>
         `;
+    }
+}
+
+// Filters the already-fetched history. Searching is a pure client-side pass
+// over cachedCommits and never hits the server.
+function renderCommits(container, query = "") {
+    if (!container?.isConnected) return;
+
+    const main = container.querySelector('[data-role="main"]');
+    const needle = query.trim().toLowerCase();
+
+    const commits = cachedCommits.filter((commit) => {
+        if (!needle) return true;
+        const haystack = [
+            commit.subject,
+            commit.short_hash,
+            ...commit.files.map((f) => `${f.path} ${f.old_path || ""}`),
+        ].join(" ").toLowerCase();
+        return haystack.includes(needle);
+    });
+
+    if (!commits.length) {
+        main.innerHTML = `<div class="wgr-empty">No commits to display.</div>`;
+        return;
+    }
+
+    main.innerHTML = commits.map((commit) => {
+        const selected = commit.hash === selectedHash ? " selected" : "";
+        const fileNames = commit.files
+            .slice(0, 3)
+            .map((f) => escapeHtml(f.path))
+            .join(", ");
+        const extra = commit.file_count > 3 ? ` +${commit.file_count - 3} more` : "";
+
+        return `
+            <div class="wgr-commit${selected}" data-hash="${commit.hash}">
+                <div class="wgr-commit-head" data-action="select">
+                    <div class="wgr-time">${escapeHtml(formatTime(commit.timestamp))}</div>
+                    <div class="wgr-subject">${escapeHtml(commit.subject)}</div>
+                    <div class="wgr-meta">
+                        <span>${escapeHtml(commit.short_hash)}</span>
+                        <span>${commit.file_count} files</span>
+                    </div>
+                    ${fileNames ? `<div class="wgr-meta"><span>${fileNames}${extra}</span></div>` : ""}
+                </div>
+                <div data-role="detail"></div>
+            </div>
+        `;
+    }).join("");
+
+    for (const card of main.querySelectorAll(".wgr-commit")) {
+        const hash = card.dataset.hash;
+        const header = card.querySelector('[data-action="select"]');
+        header.addEventListener("click", async () => {
+            selectedHash = selectedHash === hash ? null : hash;
+            for (const el of main.querySelectorAll(".wgr-commit")) {
+                el.classList.toggle("selected", el.dataset.hash === selectedHash);
+                if (el.dataset.hash !== selectedHash) {
+                    el.querySelector('[data-role="detail"]').innerHTML = "";
+                }
+            }
+            if (selectedHash) {
+                await loadDetail(card, commits.find((c) => c.hash === hash));
+            } else {
+                card.querySelector('[data-role="detail"]').innerHTML = "";
+            }
+        });
+
+        if (hash === selectedHash) {
+            await loadDetail(card, commits.find((c) => c.hash === hash));
+        }
     }
 }
 
@@ -519,10 +528,7 @@ app.registerExtension({
             },
             destroy: () => {
                 activeContainer = null;
-                if (refreshTimer) {
-                    clearInterval(refreshTimer);
-                    refreshTimer = null;
-                }
+                cachedCommits = [];
             },
         });
     },

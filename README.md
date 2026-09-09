@@ -20,6 +20,7 @@ It is designed for the annoying cases where a workflow gets overwritten by anoth
 - Creates an initial snapshot on first launch
 - Watches workflow files while ComfyUI is running
 - Automatically commits after roughly **6 seconds** with no further changes
+  (and at least once a minute if files keep changing continuously)
 - Adds a **Workflow Git** tab to the ComfyUI sidebar
 - Shows commit date/time, commit message, changed files, and commit hash
 - Displays a unified Git diff for the selected commit
@@ -36,7 +37,7 @@ It is designed for the annoying cases where a workflow gets overwritten by anoth
 
 Requirements:
 
-- **Git for Windows**
+- **Git** (on Windows, [Git for Windows](https://git-scm.com/download/win))
 - `git` must be available from your system `PATH`
 
 Clone the repository into ComfyUI's `custom_nodes` directory:
@@ -95,6 +96,7 @@ Workflow saved / modified
 File change detected
         ↓
 ~6 seconds with no further changes
+(or 60s elapsed, if changes never stop)
         ↓
 git add -A
         ↓
@@ -157,6 +159,7 @@ State `D` is still present in history and can be recovered later.
 - 최초 실행 시 현재 Workflow 전체를 초기 Snapshot으로 저장
 - ComfyUI 실행 중 Workflow 파일 변경 감지
 - 마지막 변경 후 약 **6초** 동안 추가 변경이 없으면 자동 Commit
+  (변경이 계속 이어지는 경우에도 최대 60초마다 한 번은 Commit)
 - ComfyUI 왼쪽 사이드바에 **Workflow Git** 탭 추가
 - Commit 날짜/시간, Commit 메시지, 변경 파일, Commit hash 표시
 - 선택한 Commit의 실제 Git diff 표시
@@ -174,8 +177,8 @@ State `D` is still present in history and can be recovered later.
 
 필수 조건:
 
-- **Git for Windows**
-- Windows `PATH`에서 `git` 명령을 실행할 수 있어야 함
+- **Git** (Windows는 [Git for Windows](https://git-scm.com/download/win))
+- `PATH`에서 `git` 명령을 실행할 수 있어야 함
 
 ComfyUI의 `custom_nodes` 폴더에서:
 
@@ -233,6 +236,7 @@ Workflow 저장 / 수정
 파일 변경 감지
         ↓
 약 6초 동안 추가 변경 없음
+(변경이 계속되면 최대 60초)
         ↓
 git add -A
         ↓

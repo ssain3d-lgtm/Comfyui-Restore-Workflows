@@ -19,6 +19,7 @@ from server import PromptServer
 PREFIX = "[Restore Workflows]"
 POLL_SECONDS = 2.0
 DEBOUNCE_SECONDS = 6.0
+MAX_DIRTY_SECONDS = 60.0
 MAX_DIFF_CHARS = 1_000_000
 MAX_FILE_CHARS = 1_000_000
 HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -53,7 +54,7 @@ class WorkflowGitManager:
     ) -> subprocess.CompletedProcess:
         if not self.git:
             raise WorkflowGitError(
-                "git.exe was not found. Install Git for Windows and make sure Git is available in PATH."
+                "git was not found. Install Git and make sure it is available in PATH."
             )
 
         creationflags = 0
@@ -83,13 +84,15 @@ class WorkflowGitManager:
 
         if not self.git:
             raise WorkflowGitError(
-                "Git for Windows is required. Install it and restart ComfyUI."
+                "Git is required. Install it and restart ComfyUI."
             )
 
         with self.lock:
             if not (self.repo / ".git").exists():
                 self._run_git("init", check=True)
                 print(f"{PREFIX} git init: {self.repo}")
+
+            self._verify_repo_root()
 
             # Repository-local only. User/global Git settings are not changed.
             if self._run_git("config", "--get", "user.name").returncode != 0:
@@ -138,6 +141,44 @@ class WorkflowGitManager:
                 print(f"{PREFIX} initial snapshot created")
             else:
                 self.commit_if_dirty("Startup snapshot")
+
+    def _verify_repo_root(self) -> None:
+        """Refuse to operate unless the workflows folder is its own repository.
+
+        restore() deletes files, so an inherited outer repository - a stray
+        .git pointer file, a workflows folder restored inside another repo -
+        must never become the target.
+        """
+        toplevel = self._run_git(
+            "rev-parse", "--show-toplevel", check=True
+        ).stdout.strip()
+        if not toplevel:
+            raise WorkflowGitError("Could not determine the Git repository root.")
+
+        def norm(value: str) -> str:
+            return os.path.normcase(os.path.realpath(value))
+
+        if norm(toplevel) != norm(str(self.repo)):
+            raise WorkflowGitError(
+                f"{self.repo} belongs to the Git repository at {toplevel}. "
+                "The workflows folder must be its own repository."
+            )
+
+    @staticmethod
+    def _parse_name_status(lines: list[str]) -> list[dict[str, str]]:
+        files: list[dict[str, str]] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            cols = line.split("\t")
+            status = cols[0]
+            if status.startswith("R") and len(cols) >= 3:
+                files.append(
+                    {"status": status, "path": cols[2], "old_path": cols[1]}
+                )
+            elif len(cols) >= 2:
+                files.append({"status": status, "path": cols[1]})
+        return files
 
     @staticmethod
     def _now() -> str:
@@ -203,22 +244,31 @@ class WorkflowGitManager:
     def _watch_loop(self) -> None:
         previous = self._snapshot()
         dirty_since: float | None = None
+        last_change: float | None = None
 
         while not self.stop_event.wait(POLL_SECONDS):
             try:
+                now = time.monotonic()
                 current = self._snapshot()
                 if current != previous:
                     previous = current
-                    dirty_since = time.monotonic()
+                    last_change = now
+                    if dirty_since is None:
+                        dirty_since = now
+
+                if dirty_since is None:
                     continue
 
+                # Commit once the folder goes quiet, but never postpone past
+                # MAX_DIRTY_SECONDS: a folder touched on every poll would
+                # otherwise keep resetting the debounce and never get backed up.
                 if (
-                    dirty_since is not None
-                    and time.monotonic() - dirty_since >= DEBOUNCE_SECONDS
+                    now - last_change >= DEBOUNCE_SECONDS
+                    or now - dirty_since >= MAX_DIRTY_SECONDS
                 ):
                     self.commit_if_dirty("Auto backup")
-                    dirty_since = None
                     previous = self._snapshot()
+                    dirty_since = last_change = None
             except Exception as exc:
                 print(f"{PREFIX} watcher error: {exc}")
 
@@ -239,6 +289,10 @@ class WorkflowGitManager:
             "timestamp": parts[2],
             "subject": parts[3],
         }
+
+    def head(self) -> dict[str, str]:
+        with self.lock:
+            return self._head()
 
     def status(self) -> dict[str, Any]:
         if not self.ready:
@@ -290,22 +344,7 @@ class WorkflowGitManager:
             if len(meta) != 4:
                 continue
 
-            files = []
-            for line in lines[1:]:
-                if not line.strip():
-                    continue
-                cols = line.split("\t")
-                status = cols[0]
-                if status.startswith("R") and len(cols) >= 3:
-                    files.append(
-                        {
-                            "status": status,
-                            "path": cols[2],
-                            "old_path": cols[1],
-                        }
-                    )
-                elif len(cols) >= 2:
-                    files.append({"status": status, "path": cols[1]})
+            files = self._parse_name_status(lines[1:])
 
             commits.append(
                 {
@@ -343,14 +382,25 @@ class WorkflowGitManager:
     def commit_detail(self, commit_hash: str) -> dict[str, Any]:
         full_hash = self._validate_commit(commit_hash)
         with self.lock:
-            meta = self._run_git(
+            # Metadata and the changed-file list in a single call. Scanning the
+            # whole log to find this one commit's files was O(history) per click.
+            summary = self._run_git(
                 "show",
-                "-s",
                 "--date=iso-strict",
-                "--pretty=format:%H%x1f%h%x1f%aI%x1f%s",
+                "--format=%H%x1f%h%x1f%aI%x1f%s",
+                "--name-status",
+                "--find-renames",
+                "--no-ext-diff",
                 full_hash,
+                "--",
+                ".",
                 check=True,
-            ).stdout.split("\x1f", 3)
+            ).stdout.splitlines()
+
+            meta = summary[0].split("\x1f", 3) if summary else []
+            if len(meta) != 4:
+                raise WorkflowGitError("Could not read commit information.")
+            files = self._parse_name_status(summary[1:])
 
             diff = self._run_git(
                 "show",
@@ -367,11 +417,6 @@ class WorkflowGitManager:
             truncated = len(diff) > MAX_DIFF_CHARS
             if truncated:
                 diff = diff[:MAX_DIFF_CHARS] + "\n\n... [diff truncated]"
-
-        commits = self.list_commits(500)
-        files = next(
-            (c["files"] for c in commits if c["hash"] == full_hash), []
-        )
 
         return {
             "hash": meta[0],
@@ -481,7 +526,8 @@ def json_error(message: str, status: int = 400) -> web.Response:
 @routes.get("/workflow-git/status")
 async def workflow_git_status(request: web.Request) -> web.Response:
     try:
-        return web.json_response({"ok": True, **manager.status()})
+        status = await asyncio.to_thread(manager.status)
+        return web.json_response({"ok": True, **status})
     except Exception as exc:
         return json_error(str(exc), 500)
 
@@ -528,14 +574,17 @@ async def workflow_git_file(request: web.Request) -> web.Response:
 @routes.post("/workflow-git/snapshot")
 async def workflow_git_snapshot(request: web.Request) -> web.Response:
     try:
-        head = await asyncio.to_thread(
+        created = await asyncio.to_thread(
             manager.commit_if_dirty, "Manual snapshot"
+        )
+        head = created if created is not None else await asyncio.to_thread(
+            manager.head
         )
         return web.json_response(
             {
                 "ok": True,
-                "created": head is not None,
-                "head": head or manager._head(),
+                "created": created is not None,
+                "head": head,
             }
         )
     except Exception as exc:
