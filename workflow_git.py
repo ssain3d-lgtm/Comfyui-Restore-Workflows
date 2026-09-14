@@ -20,6 +20,7 @@ PREFIX = "[Restore Workflows]"
 POLL_SECONDS = 2.0
 DEBOUNCE_SECONDS = 6.0
 MAX_DIRTY_SECONDS = 60.0
+MAX_BACKOFF_SECONDS = 300.0
 MAX_DIFF_CHARS = 1_000_000
 MAX_FILE_CHARS = 1_000_000
 HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -245,6 +246,8 @@ class WorkflowGitManager:
         previous = self._snapshot()
         dirty_since: float | None = None
         last_change: float | None = None
+        failures = 0
+        retry_at = 0.0
 
         while not self.stop_event.wait(POLL_SECONDS):
             try:
@@ -256,7 +259,7 @@ class WorkflowGitManager:
                     if dirty_since is None:
                         dirty_since = now
 
-                if dirty_since is None:
+                if dirty_since is None or now < retry_at:
                     continue
 
                 # Commit once the folder goes quiet, but never postpone past
@@ -269,8 +272,22 @@ class WorkflowGitManager:
                     self.commit_if_dirty("Auto backup")
                     previous = self._snapshot()
                     dirty_since = last_change = None
+                    failures = 0
             except Exception as exc:
-                print(f"{PREFIX} watcher error: {exc}")
+                # Retrying every poll turned a stuck repository (a stale
+                # index.lock, a full disk) into an endless stream of identical
+                # errors, each spawning more git processes.
+                failures += 1
+                retry_at = time.monotonic() + min(
+                    POLL_SECONDS * 2 ** failures, MAX_BACKOFF_SECONDS
+                )
+                if failures <= 3:
+                    print(f"{PREFIX} watcher error: {exc}")
+                elif failures == 4:
+                    print(
+                        f"{PREFIX} watcher error keeps repeating; backing off "
+                        f"up to {MAX_BACKOFF_SECONDS:.0f}s and staying quiet"
+                    )
 
     def _head(self) -> dict[str, str]:
         result = self._run_git(
@@ -328,8 +345,6 @@ class WorkflowGitManager:
                 "--pretty=format:@@COMMIT@@%n%H%x1f%h%x1f%aI%x1f%s",
                 "--name-status",
                 "--find-renames",
-                "--",
-                ".",
                 check=True,
             )
 
@@ -392,8 +407,6 @@ class WorkflowGitManager:
                 "--find-renames",
                 "--no-ext-diff",
                 full_hash,
-                "--",
-                ".",
                 check=True,
             ).stdout.splitlines()
 
@@ -409,8 +422,6 @@ class WorkflowGitManager:
                 "--no-ext-diff",
                 "--unified=3",
                 full_hash,
-                "--",
-                ".",
                 check=True,
             ).stdout
 
